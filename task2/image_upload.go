@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"net/textproto"
 	"os"
+	"strconv"
+	"sync"
+	"time"
 
 	"github.com/delaemon/go-uuidv4"
 	"github.com/gorilla/mux"
@@ -17,6 +20,17 @@ const JPEGEXT = ".jpeg"
 
 // SLASH const
 const SLASH = "/"
+
+var getProcessingPoolSize = func() int {
+	pPoolSize := os.Getenv("PROCESSING_POOL_SIZE")
+	i, err := strconv.Atoi(pPoolSize)
+	if err != nil {
+		// log.Fatal("PROCESSING_POOL_SIZE is not an int!")
+		return 1
+	}
+
+	return i
+}
 
 var getBasePath = func() string {
 	return os.Getenv("BASE_PATH")
@@ -62,6 +76,28 @@ func saveImage(fullPath string) {
 // UploadJpeg recives JPEG images only with a maximum size of 8192Kb
 func UploadJpeg(w http.ResponseWriter, r *http.Request) {
 
+	if len(throttle) < getProcessingPoolSize() {
+		throttle <- 1
+		wg.Add(1)
+		go handleUpload(w, r, &wg, throttle)
+	} else {
+		time.Sleep(100 * time.Millisecond)
+		if len(throttle) < getProcessingPoolSize() {
+			throttle <- 1
+			wg.Add(1)
+			go handleUpload(w, r, &wg, throttle)
+		} else {
+			respondWithError(w, http.StatusTooManyRequests)
+			return
+		}
+	}
+
+	wg.Wait()
+}
+
+func handleUpload(w http.ResponseWriter, r *http.Request, wg *sync.WaitGroup, throttle chan int) {
+	defer wg.Done()
+
 	if err := r.ParseMultipartForm(8 * 1024); err != nil {
 		log.Fatal(err)
 	}
@@ -90,7 +126,9 @@ func UploadJpeg(w http.ResponseWriter, r *http.Request) {
 
 	if handler.Size > 8192 || (len(contentType) > 0 && contentType[0] != "image/jpeg") {
 		respondWithError(w, http.StatusBadRequest)
+		<-throttle
 		return
+
 	}
 
 	respondWithJSON(w, http.StatusOK, "image_id", uuid)
@@ -98,13 +136,19 @@ func UploadJpeg(w http.ResponseWriter, r *http.Request) {
 	path := fmt.Sprintf("%s%s%s%s", basePath, SLASH, shard, SLASH)
 	if err := os.MkdirAll(path, os.ModePerm); err == nil {
 		saveImage(path + handler.Filename)
+		<-throttle
 		return
 	}
 }
 
+var throttle = make(chan int, getProcessingPoolSize())
+var wg sync.WaitGroup
+
 func main() {
 	fmt.Println("UPLOAD THUMBNAILS SERVICE STARTED")
 	fmt.Println("listening on port: 8080")
+
+	wg.Wait()
 
 	router := mux.NewRouter()
 	router.HandleFunc("/upload", UploadJpeg).Name("/upload").Methods("POST")

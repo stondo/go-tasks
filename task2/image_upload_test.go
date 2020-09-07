@@ -12,11 +12,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/delaemon/go-uuidv4"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 )
 
-const FAKEUUID = "60cd5e90-d79f-465e-93a9-134f39d6015f"
+var FAKEUUID, _ = uuidv4.Generate() //"60cd5e90-d79f-465e-93a9-134f39d6015f"
 
 var fakeShard = setShard(FAKEUUID)
 
@@ -27,6 +28,10 @@ func Router() *mux.Router {
 }
 
 func SetupTest(dirname string, ct string) {
+	getProcessingPoolSize = func() int {
+		return 1
+	}
+
 	setContentType = func(m textproto.MIMEHeader) []string {
 		r := make([]string, 1)
 		r[0] = ct
