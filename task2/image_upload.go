@@ -148,8 +148,6 @@ func main() {
 	fmt.Println("UPLOAD THUMBNAILS SERVICE STARTED")
 	fmt.Println("listening on port: 8080")
 
-	wg.Wait()
-
 	router := mux.NewRouter()
 	router.HandleFunc("/upload", UploadJpeg).Name("/upload").Methods("POST")
 	log.Fatal(http.ListenAndServe(":8080", router))
